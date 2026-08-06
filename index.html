@@ -997,7 +997,7 @@ const App = {
               <td><span class="code-tag">${esc(p.codigo||"—")}</span></td>
               <td><div class="t-strong">${esc(p.titulo)}</div><div class="t-muted">${esc(p.direccion)}${p.barrio?` · B° ${esc(p.barrio)}`:""}, ${esc(p.localidad)}</div></td>
               <td>${esc(p.tipo)}</td>
-              <td>${p.supCub||"—"} m²<div class="t-muted">${isVivienda(p.tipo)?`${p.dorm||0} dorm.${(p.cochera&&p.cochera!=="No tiene")?" · cochera":""}${p.patio?" · patio":""}`:`${p.supTot||"—"} m² tot.`}</div></td>
+              <td>${p.supCub||"—"} m²<div class="t-muted">${isVivienda(p.tipo)?`${p.dorm||0} dorm.${(p.cochera&&p.cochera!=="No tiene")?" · cochera":""}${p.patio?" · patio":""}`:`${p.supTot||"—"} m² terreno`}</div></td>
               <td class="t-strong">${fmt(p.valorVenta,p.monedaVenta)}</td>
               <td>${esVendida(p)?'<span class="badge red"><span class="dot"></span>Vendida</span>':App.opBadge(p.estadoOp)}</td>
               <td><a class="drive-link" href="${esc(p.drive)}" target="_blank">${I.drive} Abrir</a></td>
@@ -1120,7 +1120,7 @@ const Prop = {
     const v = (k,d="") => p[k]!=null ? p[k] : d;
     const sel = (k,val) => v(k)===val ? "selected" : "";
     const ck = k => p[k] ? "checked" : "";
-    const servicios = ["Gas natural","Gas envasado","Cloacas","Luz","Agua","Pavimento","Internet"];
+    const servicios = ["Gas natural","Gas envasado","Cloacas","Luz","Agua","Internet","Pavimento","Ripio","Tierra"];
     const servChecked = v('servicios',[]);
 
     Modal.open(id?"Editar propiedad":"Nueva propiedad", `
@@ -1141,7 +1141,7 @@ const Prop = {
         </div>
         <div class="form-row">
           <div class="field" id="fld_supCub"><label>Sup. cubierta (m²)</label><input id="f_supCub" type="number" value="${esc(v('supCub'))}"></div>
-          <div class="field" id="fld_supTot"><label>Sup. total (m²)</label><input id="f_supTot" type="number" value="${esc(v('supTot'))}"></div>
+          <div class="field" id="fld_supTot"><label>Sup. del terreno (m²)</label><input id="f_supTot" type="number" value="${esc(v('supTot'))}"></div>
         </div>
         <div class="form-row" id="row_anioEstado">
           <div class="field"><label>Año / antigüedad</label><input id="f_anio" type="number" value="${esc(v('anio'))}"></div>
@@ -1244,9 +1244,18 @@ const Prop = {
         </div>
         <div class="form-row">
           <div class="field"><label>Propietario</label><input id="f_propietario" value="${esc(v('propietario'))}"></div>
+          <div class="field"><label>Teléfono del propietario</label><input id="f_telPropietario" type="tel" value="${esc(v('telPropietario'))}" placeholder="Ej: 3564-123456"></div>
+        </div>
+        <div class="form-row one">
           <div class="field"><label>Condición fiscal</label><select id="f_condFiscal">
             ${["Monotributo","Resp. Inscripto","Exento","Consumidor final"].map(o=>`<option ${sel('condFiscal',o)}>${o}</option>`).join("")}
           </select></div>
+        </div>
+        <div class="form-row one">
+          <div class="field"><label>Situación de escritura</label><select id="f_escritura">
+            ${["","Escriturable","Escritura en trámite","Sin escritura","Con boleto / posesión"].map(o=>`<option value="${o}" ${sel('escritura',o)}>${o||"— seleccionar —"}</option>`).join("")}
+          </select>
+          <div class="hint">Indica si la propiedad se puede escriturar o cuál es su situación legal.</div></div>
         </div>
         <div class="form-row">
           <div class="field"><label>Comisión pactada (%)</label><input id="f_comision" type="number" step="0.1" value="${esc(v('comision'))}" oninput="Prop.calcComision()"></div>
@@ -1484,6 +1493,8 @@ const Prop = {
     }
     if (enVenta) Object.assign(data, {
       valorVenta:num('valorVenta'), monedaVenta:g('monedaVenta'), obsPrecio:g('obsPrecio'), propietario:g('propietario'),
+      telPropietario:g('telPropietario'),
+      escritura:g('escritura'),
       condFiscal:g('condFiscal'), comision:num('comision'), estadoOp:g('estadoOp'), fechaPub:g('fechaPub'),
       aptaCredito:gc('aptaCredito'), aceptaFinanciacion:gc('aceptaFinanciacion'),
       tipoFinanciacion: gc('aceptaFinanciacion') ? g('tipoFinanciacion') : "",
@@ -1524,7 +1535,7 @@ const Prop = {
     g.push(item("Localidad",esc(p.localidad)));
     if (p.barrio) g.push(item("Barrio",esc(p.barrio)));
     if (!isViewer) g.push(item("Dirección",esc(p.direccion)));   // dirección exacta nunca al visor
-    if (ve('superficie')) g.push(item("Superficie",`${p.supCub||"—"} m² cub. / ${p.supTot||"—"} m² tot.`));
+    if (ve('superficie')) g.push(item("Superficie",`${p.supCub||"—"} m² cub. / ${p.supTot||"—"} m² terreno`));
     if (ve('anio')) g.push(item("Año",p.anio||"—"));
     if (ve('estado')) g.push(item("Estado",esc(p.estado||"—")));
     if (isVivienda(p.tipo) && ve('ambientes')) {
@@ -1555,12 +1566,13 @@ const Prop = {
       if (ve('valor')) {
         ventaItems.push(item("Valor", fmt(p.valorVenta,p.monedaVenta) + (p.obsPrecio?`<div class="t-muted" style="font-weight:400">${esc(p.obsPrecio)}</div>`:"")));
       } else if (isViewer) ventaItems.push(item("Valor", '<span class="t-muted">A consultar</span>'));
-      if (!isViewer) ventaItems.push(item("Propietario",esc(p.propietario||"—")));
+      if (!isViewer) ventaItems.push(item("Propietario",esc(p.propietario||"—") + (p.telPropietario?`<div class="t-muted" style="font-weight:400">${esc(p.telPropietario)}</div>`:"")));
       if (!isViewer) {
         const comMonto = (p.comision && p.valorVenta) ? fmt(Math.round(p.valorVenta*p.comision/100), p.monedaVenta) : null;
         ventaItems.push(item("Comisión",(p.comision||"—")+"%" + (comMonto?`<div class="t-muted" style="font-weight:400">≈ ${comMonto}</div>`:"")));
       }
       ventaItems.push(item("Estado", esVendida(p)?'<span class="badge red"><span class="dot"></span>Vendida</span>':App.opBadge(p.estadoOp)));
+      if (p.escritura) ventaItems.push(item("Escritura", esc(p.escritura)));
       if (ve('financiacion')) {
         ventaItems.push(item("Apta crédito", p.aptaCredito?'<span class="badge green"><span class="dot"></span>Sí</span>':'<span class="badge gray">No</span>'));
         ventaItems.push(item("Acepta financiación", p.aceptaFinanciacion?'<span class="badge green"><span class="dot"></span>Sí</span>':'<span class="badge gray">No</span>'));
