@@ -453,24 +453,26 @@ const can = () => ROLES[STATE.role].edit;
 function computeAlarms() {
   const out = [];
   DB.leads.forEach(l => {
-    // La alarma NO desaparece sola con el paso del tiempo: queda activa
-    // hasta que alguien la marque como realizada (Lead.realizar).
-    // Los interesados descartados no generan alarma.
+    // Funciona como agenda: TODO interesado con un próximo contacto agendado
+    // aparece, sin importar cuántos días falten. La alarma no desaparece sola
+    // con el paso del tiempo: queda activa hasta que alguien la marque como
+    // realizada (Lead.realizar). Los interesados descartados no generan alarma.
     if (l.proxima && l.estado !== "Descartado") {
       const dd = daysBetween(today, l.proxima);
-      if (dd <= 2) { const p = prop(l.propId);
-        out.push({ level: dd<0?"red":"blue", icon:I.users,
-          title:`Seguimiento pendiente — ${l.nombre}`,
-          desc:`${p?.titulo||""} · ${l.estado}${l.contacto?` · ${l.contacto}`:""}. Contacto previsto: ${fdate(l.proxima)}`,
-          when: dd<0?`Atrasado ${-dd} ${-dd===1?'día':'días'}`:(dd===0?"Hoy":`En ${dd} ${dd===1?'día':'días'}`),
-          cat:"sales",
-          action:`Lead.realizar(${l.id})`,
-          actionLabel:"Marcar realizada" });
-      }
+      const p = prop(l.propId);
+      // Color: rojo si está atrasado, ámbar si es hoy o mañana, azul si es futuro
+      const level = dd<0 ? "red" : (dd<=1 ? "amber" : "blue");
+      out.push({ level, icon:I.users, dd,
+        title:`Seguimiento — ${l.nombre}`,
+        desc:`${p?.titulo||""} · ${l.estado}${l.contacto?` · ${l.contacto}`:""}. Contacto previsto: ${fdate(l.proxima)}`,
+        when: dd<0?`Atrasado ${-dd} ${-dd===1?'día':'días'}`:(dd===0?"Hoy":(dd===1?"Mañana":`En ${dd} días`)),
+        cat:"sales",
+        action:`Lead.realizar(${l.id})`,
+        actionLabel:"Marcar realizada" });
     }
   });
-  const order = {red:0,amber:1,blue:2};
-  return out.sort((a,b)=>order[a.level]-order[b.level]);
+  // Orden cronológico: primero lo más atrasado / más próximo, luego lo lejano
+  return out.sort((a,b)=>a.dd-b.dd);
 }
 /* ---------- Navegación ---------- */
 const NAV = [
@@ -1079,7 +1081,7 @@ const App = {
   render_alarms(){
     const alarms = computeAlarms();
     return `
-      <div class="page-head"><div><h2>Alarmas y seguimientos</h2><p>Seguimientos pendientes. <b>La alarma queda activa hasta que se marca como realizada</b>, aunque pase la fecha.</p></div></div>
+      <div class="page-head"><div><h2>Alarmas y seguimientos</h2><p>Agenda de contactos con interesados. <b>Aparecen todos los seguimientos agendados</b>, ordenados por fecha, y quedan activos hasta marcarse como realizados.</p></div></div>
       <div class="card">
         ${alarms.length?alarms.map(a=>App.alarmRow(a)).join(""):`<div class="empty"><div class="ic">${I.bell}</div><h4>Todo al día</h4><p>No hay seguimientos pendientes. Todos fueron marcados como realizados.</p></div>`}
       </div>`;
@@ -1889,7 +1891,8 @@ const Lead = {
       <div class="form-row"><div class="field"><label>Origen</label><select id="l_origen">${opt(["Cartel","Referido","Portal web","Redes","Llamado","Otro"], v('origen'))}</select></div>
         <div class="field"><label>Estado</label><select id="l_estado">${opt(["Nuevo","Contactado","Visita agendada","Negociando","Descartado"], v('estado'))}</select></div></div>
       <div class="form-row"><div class="field"><label>Fecha de contacto</label><input id="l_fecha" type="date" value="${esc(v('fecha',today))}"></div>
-        <div class="field"><label>Próxima acción</label><input id="l_proxima" type="date" value="${esc(v('proxima'))}"></div></div>
+        <div class="field"><label>Próxima acción</label><input id="l_proxima" type="date" value="${esc(v('proxima',today))}">
+        <div class="hint">Fecha del próximo contacto. Mientras esté cargada, el interesado aparece en Alarmas como recordatorio.</div></div></div>
       <div class="form-row one"><div class="field"><label>Nota / seguimiento / observaciones</label><textarea id="l_nota" rows="3">${esc(v('nota'))}</textarea></div></div>
     `, `<button class="btn" onclick="Lead.list(${propId})">Volver</button><button class="btn btn-primary" onclick="Lead.save(${propId},${leadId||'null'})">${leadId?'Guardar cambios':'Guardar'}</button>`);
   },
