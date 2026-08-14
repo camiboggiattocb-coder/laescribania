@@ -255,6 +255,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
   // Configuración del proyecto Firebase de INMOBILIARIA LA ESCRIBANÍA
   const firebaseConfig = {
@@ -380,6 +381,7 @@ const I = {
   check:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>',
   search:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
   chart:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="3" y1="20" x2="21" y2="20"/></svg>',
+  download:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
 };
 
 /* ---------- Datos (se cargan desde Firebase al iniciar) ----------
@@ -995,7 +997,7 @@ const App = {
           ${rows.length ? rows.map(p=>`
             <tr class="${esVendida(p)?'sold':''}">
               <td><span class="code-tag">${esc(p.codigo||"—")}</span></td>
-              <td><div class="t-strong">${esc(p.titulo)}</div><div class="t-muted">${esc(p.direccion)}${p.barrio?` · B° ${esc(p.barrio)}`:""}, ${esc(p.localidad)}</div></td>
+              <td><div class="t-strong">${esc(p.titulo)}${(p.unidades&&p.unidades.length)?` <span class="badge blue" style="font-size:10px">+${p.unidades.length} unidad${p.unidades.length>1?'es':''}</span>`:""}</div><div class="t-muted">${esc(p.direccion)}${p.barrio?` · B° ${esc(p.barrio)}`:""}, ${esc(p.localidad)}</div></td>
               <td>${esc(p.tipo)}</td>
               <td>${p.supCub||"—"} m²<div class="t-muted">${isVivienda(p.tipo)?`${p.dorm||0} dorm.${(p.cochera&&p.cochera!=="No tiene")?" · cochera":""}${p.patio?" · patio":""}`:`${p.supTot||"—"} m² terreno`}</div></td>
               <td class="t-strong">${fmt(p.valorVenta,p.monedaVenta)}</td>
@@ -1055,7 +1057,7 @@ const App = {
                     : fmt(p.valorVenta,p.monedaVenta))
                 : '<span class="t-muted">A consultar</span>'}</td>
               ${isViewer?"":`
-                <td>${esc(p.propietario||"—")}<div class="t-muted">${esc(p.condFiscal||"")}</div></td>
+                <td>${esc(p.propietario||"—")}${p.telPropietario?`<div class="t-muted">${esc(p.telPropietario)}</div>`:""}</td>
                 <td>${p.comision?p.comision+"%":"—"}${comMonto?`<div class="t-muted">${comMonto}</div>`:""}</td>
                 <td>${esVendida(p)?'<span class="badge red"><span class="dot"></span>Vendida</span>':App.opBadge(p.estadoOp)}</td>
                 <td><button class="btn btn-sm" onclick="Lead.list(${p.id})">${leads.length} ${leads.length===1?'interesado':'interesados'}</button></td>
@@ -1205,6 +1207,14 @@ const Prop = {
         </div>
       </div>
 
+      <!-- UNIDADES ADICIONALES -->
+      <div class="form-section">
+        <h4>${I.home} Unidades adicionales</h4>
+        <div class="hint" style="margin-bottom:12px">Si esta venta incluye <b>más de una unidad</b> (por ejemplo, un local abajo y un departamento arriba que se venden juntos), agregá cada unidad extra acá. Los datos de arriba (dirección, precio, propietario, comisión) valen para el <b>conjunto</b>; acá solo se cargan las características de cada unidad adicional.</div>
+        <div id="unidades_container"></div>
+        <button type="button" class="btn btn-sm" style="margin-top:6px" onclick="Prop.agregarUnidad()">${I.plus} Agregar unidad</button>
+      </div>
+
       <!-- DRIVE + VISIBILIDAD -->
       <div class="form-section">
         <h4>${I.edit} Observaciones</h4>
@@ -1247,11 +1257,6 @@ const Prop = {
           <div class="field"><label>Teléfono del propietario</label><input id="f_telPropietario" type="tel" value="${esc(v('telPropietario'))}" placeholder="Ej: 3564-123456"></div>
         </div>
         <div class="form-row one">
-          <div class="field"><label>Condición fiscal</label><select id="f_condFiscal">
-            ${["Monotributo","Resp. Inscripto","Exento","Consumidor final"].map(o=>`<option ${sel('condFiscal',o)}>${o}</option>`).join("")}
-          </select></div>
-        </div>
-        <div class="form-row one">
           <div class="field"><label>Situación de escritura</label><select id="f_escritura">
             ${["","Escriturable","Escritura en trámite","Sin escritura","Con boleto / posesión"].map(o=>`<option value="${o}" ${sel('escritura',o)}>${o||"— seleccionar —"}</option>`).join("")}
           </select>
@@ -1284,6 +1289,66 @@ const Prop = {
 
     // estado inicial de los bloques condicionales
     Prop.toggleTipo(); Prop.toggleVisor(); Prop.toggleFin(); Prop.calcComision();
+    // cargar unidades adicionales ya guardadas (si es edición)
+    Prop._unidadSeq = 0;
+    const existentes = (id ? (prop(id).unidades||[]) : []);
+    existentes.forEach(u => Prop.agregarUnidad(u));
+  },
+
+  /* ----- Unidades adicionales (para ventas de varias unidades juntas) ----- */
+  agregarUnidad(datos){
+    const cont = document.getElementById('unidades_container');
+    if (!cont) return;
+    const i = ++Prop._unidadSeq;
+    const d = datos || {};
+    const opt = (arr,cur) => arr.map(o=>`<option ${cur===o?'selected':''}>${o}</option>`).join("");
+    const div = document.createElement('div');
+    div.className = 'unidad-box';
+    div.id = 'unidad_'+i;
+    div.style.cssText = 'border:1px solid var(--line-strong);border-radius:8px;padding:14px;margin-bottom:12px;background:var(--surface)';
+    div.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span style="font-weight:700;color:var(--brand);font-size:13px">Unidad adicional</span>
+        <button type="button" class="icon-btn" title="Quitar" onclick="Prop.quitarUnidad(${i})">${I.trash}</button>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Tipo</label><select class="u_tipo" data-u="${i}">
+          ${opt(["Casa","Departamento","Local","Terreno","Galpón","Oficina","Campo","Cochera","Baulera"], d.tipo)}
+        </select></div>
+        <div class="field"><label>Sup. cubierta (m²)</label><input class="u_supCub" data-u="${i}" type="number" value="${esc(d.supCub||"")}"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Ambientes</label><input class="u_ambientes" data-u="${i}" type="number" value="${esc(d.ambientes||"")}"></div>
+        <div class="field"><label>Dormitorios</label><input class="u_dorm" data-u="${i}" type="number" value="${esc(d.dorm||"")}"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Baños</label><input class="u_banos" data-u="${i}" type="number" value="${esc(d.banos||"")}"></div>
+        <div class="field"><label>Estado / detalle</label><input class="u_detalle" data-u="${i}" value="${esc(d.detalle||"")}" placeholder="Ej: en muy buen estado, alquilado, etc."></div>
+      </div>`;
+    cont.appendChild(div);
+  },
+
+  quitarUnidad(i){
+    const div = document.getElementById('unidad_'+i);
+    if (div) div.remove();
+  },
+
+  leerUnidades(){
+    const boxes = document.querySelectorAll('.unidad-box');
+    const out = [];
+    boxes.forEach(b=>{
+      const q = sel => b.querySelector(sel);
+      const numOrNull = el => { const n=parseFloat(el.value); return isNaN(n)?null:n; };
+      out.push({
+        tipo: q('.u_tipo').value,
+        supCub: numOrNull(q('.u_supCub')),
+        ambientes: numOrNull(q('.u_ambientes')),
+        dorm: numOrNull(q('.u_dorm')),
+        banos: numOrNull(q('.u_banos')),
+        detalle: q('.u_detalle').value || ""
+      });
+    });
+    return out;
   },
 
   toggleTipo(){
@@ -1470,7 +1535,7 @@ const Prop = {
       supTot: esCampo ? null : num('supTot'),
       anio: (esCampo||esTerreno) ? null : num('anio'),
       estado: (esCampo||esTerreno) ? "" : g('estado'),
-      servicios, drive:g('drive'), visibleColegas:gc('visible'),
+      servicios, unidades: Prop.leerUnidades(), drive:g('drive'), visibleColegas:gc('visible'),
       visorCampos: (function(){
         const keys=["valor","superficie","ambientes","anio","estado","servicios","financiacion"];
         const sel=Array.from(document.querySelectorAll('.f_visorcampo:checked')).map(e=>e.value);
@@ -1495,7 +1560,7 @@ const Prop = {
       valorVenta:num('valorVenta'), monedaVenta:g('monedaVenta'), obsPrecio:g('obsPrecio'), propietario:g('propietario'),
       telPropietario:g('telPropietario'),
       escritura:g('escritura'),
-      condFiscal:g('condFiscal'), comision:num('comision'), estadoOp:g('estadoOp'), fechaPub:g('fechaPub'),
+      comision:num('comision'), estadoOp:g('estadoOp'), fechaPub:g('fechaPub'),
       aptaCredito:gc('aptaCredito'), aceptaFinanciacion:gc('aceptaFinanciacion'),
       tipoFinanciacion: gc('aceptaFinanciacion') ? g('tipoFinanciacion') : "",
     });
@@ -1603,13 +1668,133 @@ const Prop = {
         ${p.notaVenta?`<div class="card" style="padding:12px 14px;margin-top:10px"><div style="font-size:13.5px;white-space:pre-wrap">${esc(p.notaVenta)}</div></div>`:""}
       </div>`;
     }
+    // Unidades adicionales (características de cada unidad del conjunto)
+    if (p.unidades && p.unidades.length) {
+      html += `<div class="section"><div class="section-head"><h3>Unidades incluidas en la venta</h3></div>
+        <div class="hint" style="margin-bottom:10px">Esta operación incluye ${p.unidades.length+1} unidades que se venden en conjunto.</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Unidad</th><th>Tipo</th><th>Sup. cub.</th><th>Amb.</th><th>Dorm.</th><th>Baños</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td class="t-strong">Principal</td><td>${esc(p.tipo)}</td><td>${p.supCub||"—"} m²</td><td>${p.ambientes||"—"}</td><td>${p.dorm||"—"}</td><td>${p.banos||"—"}</td><td class="t-muted">${esc(p.estado||"—")}</td></tr>
+            ${p.unidades.map((u,idx)=>`<tr><td class="t-strong">Unidad ${idx+2}</td><td>${esc(u.tipo||"—")}</td><td>${u.supCub||"—"} m²</td><td>${u.ambientes||"—"}</td><td>${u.dorm||"—"}</td><td>${u.banos||"—"}</td><td class="t-muted">${esc(u.detalle||"—")}</td></tr>`).join("")}
+          </tbody>
+        </table></div>
+      </div>`;
+    }
     // Observaciones: solo uso interno, el colega no las ve
     if (!isViewer && p.observaciones) {
       html += `<div class="section"><div class="section-head"><h3>Observaciones</h3></div>
         <div class="card" style="padding:14px 16px"><div style="font-size:14px;line-height:1.6;white-space:pre-wrap">${esc(p.observaciones)}</div></div></div>`;
     }
-    html += `<div class="section"><a class="btn btn-primary" href="${esc(p.drive)}" target="_blank">${I.drive} Abrir carpeta de Drive</a></div>`;
+    html += `<div class="section" style="display:flex;gap:10px;flex-wrap:wrap">
+      <a class="btn btn-primary" href="${esc(p.drive)}" target="_blank">${I.drive} Abrir carpeta de Drive</a>
+      <button class="btn" onclick="Prop.descargarPDF(${p.id})">${I.download} Descargar ficha PDF</button>
+    </div>`;
     Modal.open(p.titulo, html);
+  },
+
+  /* ----- Ficha de la propiedad en PDF (sin precio, con financiación) ----- */
+  descargarPDF(id){
+    const p = prop(id);
+    if (!window.jspdf || !window.jspdf.jsPDF) { alert("No se pudo cargar el generador de PDF. Verificá la conexión a internet e intentá de nuevo."); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:"mm", format:"a4" });
+    const W = 210, M = 18;
+    let y = 16;
+
+    // Colores de marca
+    const azul = [31,78,107], gris=[90,100,110], verde=[31,78,61], linea=[210,218,224];
+
+    // --- Encabezado con logo ---
+    try {
+      const img = document.querySelector('#loginLogo, .brand-logo img, img[src^="data:image/jpeg"]');
+      if (img && img.src) doc.addImage(img.src, "JPEG", M, y-2, 20, 22);
+    } catch(e){}
+    doc.setFont("helvetica","bold"); doc.setFontSize(17); doc.setTextColor(...azul);
+    doc.text("INMOBILIARIA LA ESCRIBANÍA", M+25, y+6);
+    doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(...gris);
+    doc.text("Marconi 7 — Morteros, Córdoba", M+25, y+12);
+    y += 26;
+    doc.setDrawColor(...verde); doc.setLineWidth(0.8); doc.line(M, y, W-M, y);
+    y += 10;
+
+    // --- Título de la propiedad ---
+    doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.setTextColor(40,45,50);
+    const titLines = doc.splitTextToSize(p.titulo||"Propiedad", W-2*M);
+    doc.text(titLines, M, y); y += titLines.length*7 + 1;
+    doc.setFont("helvetica","normal"); doc.setFontSize(10.5); doc.setTextColor(...gris);
+    const ubic = [p.barrio?("B° "+p.barrio):"", p.localidad].filter(Boolean).join(" — ");
+    if (ubic){ doc.text(ubic, M, y); y += 6; }
+    doc.setFontSize(9); doc.setTextColor(150,150,150);
+    doc.text("Código: "+(p.codigo||"—")+"   ·   Tipo: "+(p.tipo||"—"), M, y); y += 9;
+
+    // --- Helper de secciones ---
+    const seccion = (titulo) => {
+      if (y > 265){ doc.addPage(); y = 20; }
+      doc.setFillColor(...azul); doc.rect(M, y-4, W-2*M, 7, "F");
+      doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(255,255,255);
+      doc.text(titulo.toUpperCase(), M+3, y+1); y += 9;
+      doc.setTextColor(40,45,50);
+    };
+    const fila = (etq, val) => {
+      if (val==null || val==="" || val==="—") return;
+      if (y > 275){ doc.addPage(); y = 20; }
+      doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(...azul);
+      doc.text(etq+":", M+2, y);
+      doc.setFont("helvetica","normal"); doc.setTextColor(45,50,55);
+      const vLines = doc.splitTextToSize(String(val), W-2*M-40);
+      doc.text(vLines, M+42, y); y += Math.max(vLines.length*5, 5.5);
+    };
+
+    // --- Características ---
+    seccion("Características");
+    fila("Tipo", p.tipo);
+    if (p.supCub) fila("Sup. cubierta", p.supCub+" m²");
+    if (p.supTot) fila("Sup. del terreno", p.supTot+" m²");
+    if (p.ambientes) fila("Ambientes", p.ambientes);
+    if (p.dorm) fila("Dormitorios", p.dorm);
+    if (p.banos) fila("Baños", p.banos);
+    if (p.cochera && p.cochera!=="No tiene") fila("Cochera", p.cochera);
+    if (p.anio) fila("Año / antigüedad", p.anio);
+    if (p.estado) fila("Estado", p.estado);
+    const comod = [p.patio&&"Patio/jardín",p.living&&"Living-comedor",p.cocina&&"Cocina",p.lavadero&&"Lavadero",p.balcon&&"Balcón",p.amoblado&&"Amoblado"].filter(Boolean);
+    if (comod.length) fila("Comodidades", comod.join(", "));
+    y += 2;
+
+    // --- Unidades adicionales ---
+    if (p.unidades && p.unidades.length){
+      seccion("Unidades incluidas en la venta");
+      doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor(45,50,55);
+      const desc = u => [u.tipo, u.supCub?u.supCub+" m²":"", u.dorm?u.dorm+" dorm.":"", u.banos?u.banos+" baños":"", u.detalle].filter(Boolean).join(" · ");
+      doc.text("• Principal: "+desc({tipo:p.tipo,supCub:p.supCub,dorm:p.dorm,banos:p.banos,detalle:p.estado}), M+2, y, {maxWidth:W-2*M-4}); y += 6;
+      p.unidades.forEach((u,i)=>{ if(y>275){doc.addPage();y=20;} doc.text("• Unidad "+(i+2)+": "+desc(u), M+2, y, {maxWidth:W-2*M-4}); y += 6; });
+      y += 2;
+    }
+
+    // --- Servicios ---
+    if (p.servicios && p.servicios.length){
+      seccion("Servicios");
+      doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor(45,50,55);
+      const sLines = doc.splitTextToSize(p.servicios.join("   ·   "), W-2*M-4);
+      doc.text(sLines, M+2, y); y += sLines.length*5 + 3;
+    }
+
+    // --- Financiación (SÍ va) ---
+    seccion("Financiación");
+    fila("Apta crédito hipotecario", p.aptaCredito ? "Sí" : "No");
+    fila("Acepta financiación", p.aceptaFinanciacion ? "Sí" : "No");
+    if (p.escritura) fila("Situación", p.escritura);
+    y += 4;
+
+    // --- Pie ---
+    const ph = doc.internal.pageSize.getHeight();
+    doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(M, ph-18, W-M, ph-18);
+    doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(140,140,140);
+    doc.text("Inmobiliaria La Escribanía · Marconi 7, Morteros, Córdoba · Consultar precio y disponibilidad", M, ph-12);
+    doc.text("Ficha generada el "+fdate(today), M, ph-8);
+
+    const nombre = "Ficha_"+((p.codigo||"propiedad").replace(/[^\w-]/g,"_"))+".pdf";
+    doc.save(nombre);
   },
 };
 
