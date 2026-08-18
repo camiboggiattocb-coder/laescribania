@@ -447,6 +447,19 @@ const prop = id => DB.properties.find(p=>p.id===id);
 const esc = s => (s==null?"":String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const isVivienda = t => t==="Casa" || t==="Departamento";
 const esVendida = p => p.enVenta && p.estadoOp === "Vendida";
+
+// Nombres de captadores ya cargados (para sugerir y evitar duplicados por tipeo)
+function captadoresUsados(){
+  const set = new Set();
+  DB.properties.forEach(p=>{ if(p.captador) set.add(p.captador.trim()); });
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'es'));
+}
+// Nombres de vendedores ya cargados
+function vendedoresUsados(){
+  const set = new Set();
+  DB.properties.forEach(p=>{ if(p.vendedor) set.add(p.vendedor.trim()); });
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'es'));
+}
 const can = () => ROLES[STATE.role].edit;
 
 /* ---------- Motor de alarmas ---------- */
@@ -812,6 +825,30 @@ const App = {
     const porBarrio = agrupar(disponibles,'barrio');
     const porTipo   = agrupar(disponibles,'tipo');
 
+    // --- Reporte por captador y por vendedor ---
+    const rankCaptadores = (() => {
+      const m = {};
+      DB.properties.filter(p=>p.enVenta).forEach(p=>{
+        const c = (p.captador||"").trim(); if(!c) return;
+        if(!m[c]) m[c] = { nombre:c, captadas:0, vendidas:0 };
+        m[c].captadas++;
+        if(esVendida(p)) m[c].vendidas++;
+      });
+      return Object.values(m).sort((a,b)=>b.captadas-a.captadas);
+    })();
+    const sinCaptador = DB.properties.filter(p=>p.enVenta && !(p.captador||"").trim()).length;
+
+    const rankVendedores = (() => {
+      const m = {};
+      vendidas.forEach(p=>{
+        const vd = (p.vendedor||"").trim(); if(!vd) return;
+        if(!m[vd]) m[vd] = { nombre:vd, vendidas:0, comision:0 };
+        m[vd].vendidas++;
+        m[vd].comision += comisionUSD(p);
+      });
+      return Object.values(m).sort((a,b)=>b.vendidas-a.vendidas);
+    })();
+
     // --- Embudo de interesados ---
     const estadosLead = ["Nuevo","Contactado","Visita agendada","Negociando"];
     const embudo = estadosLead.map(e=>[e, DB.leads.filter(l=>l.estado===e).length]);
@@ -952,6 +989,47 @@ const App = {
           </div>
         </div>
       </div>
+
+      <!-- REPORTE POR CAPTADOR / VENDEDOR -->
+      ${(rankCaptadores.length || rankVendedores.length)?`
+      <div class="section">
+        <div class="section-head"><h3>Desempeño del equipo</h3></div>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">
+          <div class="card" style="padding:16px">
+            <div class="t-strong" style="margin-bottom:12px">Propiedades por captador</div>
+            ${rankCaptadores.length?`
+            <div class="table-wrap"><table>
+              <thead><tr><th>Captador</th><th style="text-align:center">Captadas</th><th style="text-align:center">Vendidas</th><th style="text-align:center">Efectividad</th></tr></thead>
+              <tbody>
+                ${rankCaptadores.map(c=>{
+                  const ef = c.captadas ? Math.round(c.vendidas*100/c.captadas) : 0;
+                  return `<tr>
+                    <td class="t-strong">${esc(c.nombre)}</td>
+                    <td style="text-align:center">${c.captadas}</td>
+                    <td style="text-align:center">${c.vendidas}</td>
+                    <td style="text-align:center"><span class="badge ${ef>=50?'green':(ef>0?'amber':'gray')}">${ef}%</span></td>
+                  </tr>`;
+                }).join("")}
+                ${sinCaptador?`<tr><td class="t-muted">Sin captador cargado</td><td style="text-align:center" class="t-muted">${sinCaptador}</td><td style="text-align:center" class="t-muted">—</td><td></td></tr>`:""}
+              </tbody>
+            </table></div>`:`<div class="t-muted" style="font-size:13px">Todavía no hay captadores cargados en las propiedades.</div>`}
+          </div>
+          <div class="card" style="padding:16px">
+            <div class="t-strong" style="margin-bottom:12px">Ventas por vendedor</div>
+            ${rankVendedores.length?`
+            <div class="table-wrap"><table>
+              <thead><tr><th>Vendedor</th><th style="text-align:center">Ventas</th><th style="text-align:right">Comisión generada</th></tr></thead>
+              <tbody>
+                ${rankVendedores.map(vd=>`<tr>
+                  <td class="t-strong">${esc(vd.nombre)}</td>
+                  <td style="text-align:center">${vd.vendidas}</td>
+                  <td style="text-align:right">${u(vd.comision)}</td>
+                </tr>`).join("")}
+              </tbody>
+            </table></div>`:`<div class="t-muted" style="font-size:13px">Todavía no hay ventas con vendedor cargado.</div>`}
+          </div>
+        </div>
+      </div>`:""}
 
       <!-- COTIZACIÓN -->
       <div class="card" style="margin-top:18px;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
@@ -1274,6 +1352,12 @@ const Prop = {
           </select></div>
           <div class="field"><label>Fecha de publicación</label><input id="f_fechaPub" type="date" value="${esc(v('fechaPub',today))}"></div>
         </div>
+        <div class="form-row one">
+          <div class="field"><label>Captador (quién trajo la propiedad)</label>
+            <input id="f_captador" value="${esc(v('captador'))}" list="lista_captadores" placeholder="Nombre de quien la captó">
+            <datalist id="lista_captadores">${captadoresUsados().map(c=>`<option value="${esc(c)}">`).join("")}</datalist>
+          </div>
+        </div>
         <div class="field" style="margin-bottom:12px"><label>Financiación</label>
           <div class="checkbox-grid" style="grid-template-columns:1fr 1fr">
             <label><input type="checkbox" id="f_aptaCredito" ${ck('aptaCredito')}> Apta crédito hipotecario</label>
@@ -1437,8 +1521,15 @@ const Prop = {
         <div class="form-row">
           <div class="field"><label>Fecha de la venta</label>
             <input id="v_fecha" type="date" value="${today}"></div>
+          <div class="field"><label>Vendedor (quién la vendió)</label>
+            <input id="v_vendedor" value="${esc(p.captador||"")}" list="lista_vendedores" placeholder="Nombre de quien la vendió">
+            <datalist id="lista_vendedores">${vendedoresUsados().concat(captadoresUsados()).filter((x,i,a)=>a.indexOf(x)===i).map(vd=>`<option value="${esc(vd)}">`).join("")}</datalist>
+            <div class="hint">Sugerimos el captador, pero podés cambiarlo si la vendió otra persona.</div></div>
+        </div>
+        <div class="form-row">
           <div class="field"><label>Comprador (opcional)</label>
             <input id="v_comprador" placeholder="Nombre del comprador"></div>
+          <div class="field"></div>
         </div>
         <div class="form-row one"><div class="field">
           <label>Notas del cierre (opcional)</label>
@@ -1504,6 +1595,7 @@ const Prop = {
     p.comisionMonto = isNaN(monto) ? Math.round(precio*(pct||0)/100) : monto;
     p.fechaVenta = fecha;
     p.comprador = document.getElementById('v_comprador').value||"";
+    p.vendedor = document.getElementById('v_vendedor').value||"";
     p.notaVenta = document.getElementById('v_nota').value||"";
 
     persist('properties', p);
@@ -1561,6 +1653,7 @@ const Prop = {
     if (enVenta) Object.assign(data, {
       valorVenta:num('valorVenta'), monedaVenta:g('monedaVenta'), obsPrecio:g('obsPrecio'), propietario:g('propietario'),
       telPropietario:g('telPropietario'),
+      captador:g('captador'),
       escritura:g('escritura'),
       comision:num('comision'), estadoOp:g('estadoOp'), fechaPub:g('fechaPub'),
       aptaCredito:gc('aptaCredito'), aceptaFinanciacion:gc('aceptaFinanciacion'),
@@ -1640,6 +1733,7 @@ const Prop = {
       }
       ventaItems.push(item("Estado", esVendida(p)?'<span class="badge red"><span class="dot"></span>Vendida</span>':App.opBadge(p.estadoOp)));
       if (p.escritura) ventaItems.push(item("Escritura", esc(p.escritura)));
+      if (!isViewer && p.captador) ventaItems.push(item("Captador", esc(p.captador)));
       if (ve('financiacion')) {
         ventaItems.push(item("Apta crédito", p.aptaCredito?'<span class="badge green"><span class="dot"></span>Sí</span>':'<span class="badge gray">No</span>'));
         ventaItems.push(item("Acepta financiación", p.aceptaFinanciacion?'<span class="badge green"><span class="dot"></span>Sí</span>':'<span class="badge gray">No</span>'));
@@ -1666,6 +1760,7 @@ const Prop = {
           ${item("Comisión",`${p.comisionMonto!=null?fmt(p.comisionMonto,mReal):"—"}${p.comision?` (${p.comision}%)`:""}`)}
           ${dias!=null?item("Tiempo hasta vender",`${dias} días`):""}
           ${p.comprador?item("Comprador",esc(p.comprador)):""}
+          ${p.vendedor?item("Vendedor",esc(p.vendedor)):""}
         </div>
         ${p.notaVenta?`<div class="card" style="padding:12px 14px;margin-top:10px"><div style="font-size:13.5px;white-space:pre-wrap">${esc(p.notaVenta)}</div></div>`:""}
       </div>`;
