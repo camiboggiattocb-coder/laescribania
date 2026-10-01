@@ -549,9 +549,15 @@ const Filtros = {
   },
 
   // Aplica los filtros de la página a una lista de propiedades
+  // Nº interno del código de propiedad (PROP-0007 -> 7), para ordenar numéricamente
+  numCodigo(p){
+    const n = parseInt(String(p.codigo||"").replace(/\D/g,""));
+    return isNaN(n) ? Infinity : n; // las sin código quedan al final
+  },
+
   aplicar(page, props){
     const f = Filtros.estado(page);
-    return props.filter(p=>{
+    const filtradas = props.filter(p=>{
       if (f.q){
         const t = (esc(p.titulo)+" "+esc(p.direccion)+" "+esc(p.localidad)+" "+esc(p.barrio)+" "+esc(p.codigo)).toLowerCase();
         if (!t.includes(f.q.toLowerCase())) return false;
@@ -575,6 +581,8 @@ const Filtros = {
       }
       return true;
     });
+    // Ordenar siempre por código de propiedad (numérico, de menor a mayor)
+    return filtradas.sort((a,b)=>Filtros.numCodigo(a)-Filtros.numCodigo(b));
   },
 
   // Dibuja el panel de filtros
